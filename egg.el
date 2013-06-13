@@ -399,6 +399,63 @@ Many Egg faces inherit from this one by default."
                          (const :tag "Staged Changes Section" staged)
                          (const :tag "Untracked/Uignored Files" untracked))))
 
+(defcustom egg-unstaged-section-highlight-property nil
+  "Text properties used to highlight the Unstaged Changes Section
+of the status buffer, or nil for no highlighting.  When the list
+of changes is long, it's easy to lose track of whether you're in
+a staged or unstaged hunk.  Highlighting them by different colors
+can help you identify the section you're in without searching for
+the section heading.
+
+This variable's value should have the same format as the `face'
+property of text properties, i.e. either a symbol indicating a
+face name (NB: not recommended) or (KEYWORD VALUE) where each
+KEYWORD is a face atribute name and VALUE is a meaningful value
+for that attribute.
+
+For example, (:background \"yellow\") makes the whole section's
+background yellow.  Unfortunately, right now this highlighting
+overrides any existing highlighting from `diff-mode', so lines
+that look like
+@@ -399,15 +399,26 @@
+which normally have gray backgrounds will have yellow
+backgrounds too.  Properties you didn't specify will not be
+overridden, so (e.g.) the font color will continue to be
+highlighted as normal.  Patches to fix this problem would be
+very welcome.
+
+Related: `egg-staged-section-highlight-property'"
+  :group 'egg
+  :tag "Egg Unstaged Section Highlighting")
+
+(defcustom egg-staged-section-highlight-property nil
+  "Text properties used to highlight the Staged Changes Section
+of the status buffer, or nil for no highlighting.  When the list
+of changes is long, it's easy to lose track of whether you're in
+a staged or unstaged hunk.  Highlighting them by different colors
+can help you identify the section you're in without searching for
+the section heading.
+
+This variable's value should have the same format as the `face'
+property of text properties, i.e. either a symbol indicating a
+face name (NB: not recommended) or (KEYWORD VALUE) where each
+KEYWORD is a face atribute name and VALUE is a meaningful value
+for that attribute.
+
+For example, (:background \"yellow\") makes the whole section's
+background yellow.  Unfortunately, right now this highlighting
+overrides any existing highlighting from `diff-mode', so lines
+that look like
+@@ -399,15 +399,26 @@
+which normally have gray backgrounds will have yellow
+backgrounds too.  Properties you didn't specify will not be
+overridden, so (e.g.) the font color will continue to be
+highlighted as normal.  Patches to fix this problem would be
+very welcome.
+
+Related: `egg-unstaged-section-highlight-property'"
+  :group 'egg
+  :tag "Egg Staged Section Highlighting")
 
 (defcustom egg-commit-buffer-sections '(staged unstaged untracked)
   "Sections to be listed in the status buffer and their order."
@@ -2592,7 +2649,11 @@ untracked files"
                                :hunk-map egg-unstaged-hunk-section-map
                                :cc-diff-map egg-unmerged-diff-section-map
                                :cc-hunk-map egg-unmerged-hunk-section-map
-                               :conflict-map egg-unmerged-hunk-section-map)))
+                               :conflict-map egg-unmerged-hunk-section-map)
+    (when egg-unstaged-section-highlight-property
+      (overlay-put (make-overlay diff-beg (point))
+                   'face egg-unstaged-section-highlight-property)))
+    ))
 
 (defun egg-sb-insert-staged-section (title &rest extra-diff-options)
   "Insert the staged changes section into the status buffer."
@@ -2614,7 +2675,10 @@ untracked files"
                                :src-prefix "HEAD:/"
                                :dst-prefix "INDEX:/"
                                :diff-map egg-staged-diff-section-map
-                               :hunk-map egg-staged-hunk-section-map)))
+                               :hunk-map egg-staged-hunk-section-map)
+    (when egg-staged-section-highlight-property
+      (overlay-put (make-overlay diff-beg (point))
+                   'face egg-staged-section-highlight-property))))
 
 (defvar egg-hunk-ranges-cache nil
   "A list of (FILENAME HUNK-RANGE-INFO ...)) for each file in the
