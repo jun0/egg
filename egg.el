@@ -4525,18 +4525,32 @@ If INIT was not nil, then perform 1st-time initializations as well."
       (move-to-column col))))
 
 (defun egg-log-buffer-mark (pos)
+  "Mark the commit under point as BASE for the next rebase.  See also
+`egg-log-buffer-rebase' and `egg-log-buffer-rebase-interactive'."
   (interactive "d")
   (egg-log-buffer-do-mark pos ?* nil t))
 
 (defun egg-log-buffer-mark-pick (pos)
+  "Mark the commit under point as \"pick\" for the next rebase.
+Commits marked as \"pick\" will be replayed on the target.  See
+also `egg-log-buffer-rebase' and
+`egg-log-buffer-rebase-interactive'."
   (interactive "d")
   (egg-log-buffer-do-mark pos ?+))
 
 (defun egg-log-buffer-mark-squash (pos)
+  "Mark the commit under point as \"squash\" for the next rebase.
+A commit marked as \"squash\" will be combined with the commit
+that comes right before it.  See also `egg-log-buffer-rebase' and
+`egg-log-buffer-rebase-interactive'."
   (interactive "d")
   (egg-log-buffer-do-mark pos ?.))
 
 (defun egg-log-buffer-mark-edit (pos)
+  "Mark the commit under point as \"edit\" for the next rebase.
+The rebase will pause to give you a chance to amend a commit
+marked as \"edit\".  See also `egg-log-buffer-rebase' and
+`egg-log-buffer-rebase-interactive'."
   (interactive "d")
   (egg-log-buffer-do-mark pos ?~))
 
