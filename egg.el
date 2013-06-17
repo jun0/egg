@@ -2374,7 +2374,7 @@ rebase session."
 (defun egg-buffer-rebase-abort ()
   (interactive)
   (message "abort current rebase")
-  (egg-buffer-do-rebase :abort)
+  (egg-git-ok nil "rebase" "--abort")
   (egg-status))
 
 (defun egg-rebase-in-progress ()
