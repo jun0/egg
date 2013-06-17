@@ -3608,15 +3608,17 @@ If INIT was not nil, then perform 1st-time initializations as well."
     (when (egg-sync-0 "add" ".")
       (message "staged all untracked files"))))
 
-(defun egg-do-stash-wip (msg)
+
+(defun egg-do-stash-wip (msg keep-index)
   (let* ((git-dir (egg-git-dir))
-         (default-directory (file-name-directory git-dir)))
+         (default-directory (file-name-directory git-dir))
+         (extra-args (and msg (stringp msg) (list msg))))
     (if (egg-repo-clean)
         (error "No WIP to stash")
+      (when keep-index
+        (setq extra-args (cons "--keep-index" extra-args)))
       (when (egg-show-git-output
-             (if (and msg (stringp msg))
-                 (egg-sync-0 "stash" "save" msg)
-               (egg-sync-0 "stash" "save"))
+             (apply 'egg-sync-0 "stash" "save" extra-args)
              1 "GIT-STASH")
         (egg-revert-all-visited-files)))))
 
@@ -5863,8 +5865,20 @@ Each remote ref on the commit line has extra extra extra keybindings:\\<egg-log-
         (egg-status)))))
 
 (defun egg-buffer-stash-wip (msg)
+  "Stash uncommitted changes and reset the work directory to the
+state of the last commit.  With prefix argument, retain all
+staged changes.  This will also bring up the stash buffer from
+which the stashed changes can be accessed.
+
+Corresponding git commands are:
+
+git stash save               # without prefix arg
+git stash save --keep-index  # with prefix arg
+
+Elisp programs should call `egg-do-stash-wip' instead of this
+function."
   (interactive "sshort description of this work-in-progress: ")
-  (egg-do-stash-wip msg)
+  (egg-do-stash-wip msg current-prefix-arg)
   (egg-stash))
 
 (defconst egg-stash-buffer-mode-map
