@@ -3781,7 +3781,7 @@ If INIT was not nil, then perform 1st-time initializations as well."
 (defvar egg-log-msg-diff-beg nil)
 (define-derived-mode egg-log-msg-mode text-mode "Egg-LogMsg"
   "Major mode for editing Git log message.\n\n
-\{egg-log-msg-mode-map}."
+\\{egg-log-msg-mode-map}."
   (setq default-directory (file-name-directory (egg-git-dir)))
   (make-local-variable 'egg-log-msg-action)
   (set (make-local-variable 'egg-log-msg-ring-idx) nil)
