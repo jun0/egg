@@ -337,7 +337,8 @@ Many Egg faces inherit from this one by default."
               (const :tag "File Log Buffer" egg-file-log-buffer-mode)
               (const :tag "RefLog Buffer"   egg-reflog-buffer-mode)
               (const :tag "Diff Buffer"     egg-diff-buffer-mode)
-              (const :tag "Commit Buffer"   egg-commit-buffer-mode)))
+              (const :tag "Commit Buffer"   egg-commit-buffer-mode)
+              (const :tag "Rebase Buffer"   egg-rebase-buffer-mode)))
 
 (defcustom egg-buffer-hide-section-type-on-start nil
   "Initially hide sections of the selected type."
@@ -426,7 +427,7 @@ Different versions of git have different names for this subdir."
                  string))
 
 (defcustom egg-show-key-help-in-buffers
-  '(:log :status :diff :file-log :reflog :stash)
+  '(:log :status :diff :file-log :reflog :stash :rebase)
   "Display keybinding help in egg special buffers."
   :group 'egg
   :type '(set (const :tag "Status Buffer"   :status)
@@ -435,7 +436,9 @@ Different versions of git have different names for this subdir."
               (const :tag "RefLog Buffer"   :reflog)
               (const :tag "Diff Buffer"     :diff)
               (const :tag "Commit Buffer"   :commit)
-              (const :tag "Stash Buffer"    :stash)))
+              (const :tag "Stash Buffer"    :stash)
+              (const :tag "Rebase Buffer"   :rebase)
+              ))
 
 (define-widget 'egg-quit-window-actions-set 'lazy
   "Custom Type for quit-window actions."
@@ -4596,19 +4599,209 @@ marked as \"edit\".  See also `egg-log-buffer-rebase' and
                           alist))))
     alist))
 
+(define-derived-mode egg-rebase-script-mode text-mode "Egg-Rebase"
+  "Major mode for editing Git rebase scripts (git-rebase-todo files).\n\n
+\\{egg-rebase-script-mode-map}."
+  (kill-all-local-variables)
+  (setq default-directory (file-name-directory (egg-git-dir)))
+  (use-local-map egg-rebase-script-mode-map)
+  (make-local-variable 'egg-internal-rebase-buffer-closure)
+  (make-local-variable 'egg-rebase-buffer-orig-head)
+  (make-local-variable 'egg-rebase-buffer-onto)
+  (make-local-variable 'egg-rebase-buffer-upstream)
+  (make-local-variable 'egg-rebase-buffer-rebase-dir)
+  (make-local-variable 'egg-rebase-body-beg)
+  (make-local-variable 'egg-rebase-footer-beg)
+  (make-local-variable 'egg-rebase-tree-beg)
+  (setq major-mode 'egg-rebase-script-mode
+        mode-name "Egg-Rebase"
+        mode-line-process "")
+  )
+
+(define-egg-buffer rebase "*%s-rebase@%s*"
+  "Major mode to write a rebase script (git-rebase-todo file).
+Currently mult-line \"exec\" directives are not supported very
+well.
+
+\\<egg-rebase-buffer-mode-map>"
+  (egg-rebase-script-mode)
+  (set (make-local-variable 'egg-buffer-refresh-func)
+       'egg-rebase-buffer-refresh)
+  (setq buffer-invisibility-spec nil)
+  )
+
+(defun egg-rebase-buffer-refresh (&rest args)
+  (message (format "egg-rebase-buffer-refresh %s" args)))
+
+(defconst egg-rebase-script-mode-map
+  (let ((map (make-sparse-keymap "Egg:Rebase")))
+    (set-keymap-parent map text-mode-map)
+    (define-key map "\M-p" 'egg-rebase-move-commit-up)
+    (define-key map "\M-n" 'egg-rebase-move-commit-down)
+    (define-key map "\C-x " 'egg-rebase-exchange-commits-at-point-and-mark)
+    (define-key map (kbd "C-c C-c") 'egg-rebase-script-done)
+    (define-key map (kbd "C-c C-k") 'egg-rebase-script-cancel)
+    map))
+
+(defun egg-rebase-move-commit-up (pos)
+  "Move the commit under point up by one entry."
+  (interactive "d")
+  (egg-rebase-exchange-commits-at-point-and-mark
+   (line-beginning-position 0)
+   pos)
+  (previous-line)
+  )
+(defun egg-rebase-move-commit-down (pos)
+  "Move the commit under point down by one entry."
+  (interactive "d")
+  (egg-rebase-exchange-commits-at-point-and-mark
+   pos
+   (line-beginning-position 2))
+  (next-line)
+  )
+(defun egg-rebase-exchange-commits-at-point-and-mark (pos1 pos2)
+  "Exchanges the commits under point and mark.  FIXME: this
+command should recognize \"exec\" lines and coalesce backslashed
+lines to one line."
+  (interactive "r")
+  ;; FIXME: if one of the lines is in the read-only history graph, then simply
+  ;; copy it over.
+  (let (beg1 end1 beg2 end2 line1 line2)
+    (save-excursion
+      (goto-char pos2)
+      (setq beg2 (line-beginning-position))
+      (setq end2 (line-end-position))
+      (goto-char pos1)
+      (setq beg1 (line-beginning-position))
+      (setq end1 (line-end-position))
+      (when (and (equal beg1 end1)
+                 (equal beg2 end2))
+        (error "Can't exchange commit with itself"))
+      ;; POS2 has to be processed first because it will move when the text at
+      ;; POS1 is changed.
+      (setq line1 (buffer-substring-no-properties beg1 end1))
+      (setq line2 (buffer-substring-no-properties beg2 end2))
+      (delete-region beg2 end2)
+      (goto-char beg2)
+      (insert line1)
+      (delete-region beg1 end1)
+      (goto-char beg1)
+      (insert line2)
+      )
+    ))
+
+(defconst egg-rebase-script-buffer-help-text
+  (concat
+   (egg-text "Key Bindings:" 'egg-help-header-2)
+   "\n"
+   (egg-pretty-help-text
+    "\\<egg-rebase-script-mode-map>"
+    "\\[egg-rebase-move-commit-up]:move commit up  "
+    "\\[egg-rebase-move-commit-down]: move commit down  "
+    "\\[egg-rebase-exchange-commits-at-point-and-mark]:exchange commits at point & mark\n"
+    ))
+   )
 
 (defun egg-setup-rebase-interactive (rebase-dir upstream onto repo-state commit-alist)
   (let ((process-environment process-environment)
         (repo-state (or repo-state (egg-repo-state :staged :unstaged)))
-        (orig-buffer (current-buffer))
-        orig-head-sha1)
-    (setq orig-head-sha1 (plist-get repo-state :sha1))
+        (log-buffer (current-buffer))
+        (log-buffer-closure egg-internal-log-buffer-closure)
+        (orig-head (plist-get repo-state :sha1))
+        tree-beg
+        rebase-buf)
     (unless (egg-repo-clean repo-state) (error "Repo not clean"))
     (unless onto (setq onto upstream))
 
-    (with-temp-buffer
-      (make-directory rebase-dir t)
+    (setq rebase-buf (egg-get-rebase-buffer))
+    (if rebase-buf
+        (message "Already doing interactive rebase!")
+      (setq rebase-buf (egg-get-rebase-buffer 'create))
+      (with-current-buffer rebase-buf
+        (buffer-disable-undo)
+        ;; Save information that will be used in `egg-rebase-script-done'.
+        (setq egg-internal-rebase-buffer-closure log-buffer-closure)
+        (setq egg-rebase-buffer-orig-head orig-head)
+        (setq egg-rebase-buffer-onto onto)
+        (setq egg-rebase-buffer-upstream upstream)
+        (setq egg-rebase-buffer-rebase-dir rebase-dir)
 
+        (insert
+         (egg-text
+          (concat "Rebasing " (substring upstream 0 8)
+                  ".."
+                  (substring orig-head 0 8)
+                  " onto "
+                  (substring onto 0 8))
+          'egg-text-3)
+         "\n"
+         "Repository: " (egg-text (egg-git-dir) 'font-lock-constant-face) "\n"
+         (egg-text "Help" 'egg-help-header-1)
+         "\n"
+         (if (memq :rebase egg-show-key-help-in-buffers)
+             egg-rebase-script-buffer-help-text
+           "")
+         (egg-text (substitute-command-keys "-- Rebase Script (type `\\[egg-rebase-script-done]` when done or `\\[egg-rebase-script-cancel]` to cancel) --")
+                   'font-lock-comment-face)
+         "\n")
+        (setq egg-rebase-body-beg (point))
+        (put-text-property (point-min) (1- egg-rebase-body-beg) 'read-only t)
+        (insert "\n")
+        (if (consp commit-alist)
+            (dolist (rev-info commit-alist)
+              (insert (cond ((eq (nth 1 rev-info) ?+) "pick  ")
+                            ((eq (nth 1 rev-info) ?.) "squash")
+                            ((eq (nth 1 rev-info) ?~) "edit  "))
+                      " " (substring (nth 0 rev-info) 0 8)
+                      " " (nth 2 rev-info) "\n"))
+          ;; If no commits were marked, then select all commits in between
+          ;; the HEAD and the old base and insert them as "pick".
+          (insert (egg-git-to-string "log" "--pretty=oneline" "--reverse"
+                                     (concat upstream ".." orig-head))
+                  "\n")
+          (narrow-to-region egg-rebase-body-beg (point))
+          (goto-char (point-min))
+          (while (re-search-forward "^\\([0-9a-f]+\\)" nil t)
+            (replace-match (concat "pick   "
+                                   (substring (match-string 1) 0 8)) nil t))
+          (goto-char (point-max))
+          (widen)
+          )
+        (insert "\n")
+        (setq egg-rebase-footer-beg (point-marker))
+        (insert (egg-prop "---------------------- End of Rebase Script ----------------------\nCopy the SHA1 hashes you need from below.  Key bindings to copy\nthem conveniently are planned but not implemented.  Sorry!\n"
+                          'front-sticky nil
+                          'face 'font-lock-comment-face))
+        (setq tree-beg (point))
+        (case (plist-get egg-internal-rebase-buffer-closure :scope)
+          ((all) (egg-run-git-log-all))
+          ((HEAD) (egg-run-git-log-HEAD))
+          (t (error "egg-internal-rebase-buffer-closure not set")))
+        (goto-char tree-beg)
+        (egg-decorate-log)
+        (goto-char tree-beg)
+        (put-text-property (1- tree-beg) (point-max) 'read-only t)
+        (goto-char (+ 1 egg-rebase-body-beg))
+        (buffer-enable-undo)
+        )
+      )                                 ; close (if rebase-buf ...)
+    (pop-to-buffer rebase-buf)))
+
+(defun egg-rebase-script-done ()
+  (interactive)
+  (unless (eq major-mode 'egg-rebase-script-mode)
+    (error "egg-rebase-script-done must be used inside a rebase script buffer."))
+  (let ((process-environment process-environment)
+        (onto egg-rebase-buffer-onto)
+        (orig-head egg-rebase-buffer-orig-head)
+        (upstream egg-rebase-buffer-upstream)
+        (rebase-dir egg-rebase-buffer-rebase-dir)
+        ;; FIXME: how do I ensure the repo state is consistent with what's in
+        ;; the rebase script buffer?
+        (repo-state (egg-repo-state :staged :unstaged)))
+    (make-directory rebase-dir)
+
+    (with-temp-buffer
       (write-region (point-min) (point-min)
                     (concat rebase-dir "interactive"))
       (insert (plist-get repo-state :head) "\n")
@@ -4627,23 +4820,27 @@ marked as \"edit\".  See also `egg-log-buffer-rebase' and
       (write-region (point-min) (point-max)
                     (concat rebase-dir "onto"))
       (erase-buffer)
-      (insert "# Rebase " upstream ".." orig-head-sha1 " onto " onto "\n")
-      (dolist (rev-info commit-alist)
-        (insert (cond ((eq (nth 1 rev-info) ?+) "pick")
-                      ((eq (nth 1 rev-info) ?.) "squash")
-                      ((eq (nth 1 rev-info) ?~) "edit"))
-                " " (nth 0 rev-info) " " (nth 2 rev-info) "\n"))
-      (write-region (point-min) (point-max)
-                    (concat rebase-dir "git-rebase-todo"))
-      (write-region (point-min) (point-max)
-                    (concat rebase-dir "git-rebase-todo.backup")))
+      (insert "# Rebase " upstream ".." orig-head " onto " onto "\n"))
 
+    ;; Back to rebase script buffer.
+    (write-region egg-rebase-body-beg (1- egg-rebase-footer-beg)
+                  (concat rebase-dir "git-rebase-todo"))
+    (write-region egg-rebase-body-beg (1- egg-rebase-footer-beg)
+                  (concat rebase-dir "git-rebase-todo.backup"))
     (setenv "GIT_REFLOG_ACTION" (format "rebase -i (%s)" onto))
     (with-current-buffer (get-buffer-create "*egg-debug*")
-      (egg-git-ok nil "update-ref" "ORIG_HEAD" orig-head-sha1)
+      (egg-git-ok nil "update-ref" "ORIG_HEAD" orig-head)
       (egg-git-ok nil "checkout" onto)
       (egg-do-async-rebase-continue #'egg-handle-rebase-interactive-exit
-                                    orig-head-sha1))))
+                                    orig-head)
+      )
+    (kill-buffer)
+    (egg-status)))
+  
+
+(defun egg-rebase-script-cancel ()
+  (interactive)
+  (kill-buffer))
 
 (defun egg-handle-rebase-interactive-exit (&optional orig-sha1)
   (let ((exit-msg egg-async-exit-msg)
@@ -4677,27 +4874,29 @@ marked as \"edit\".  See also `egg-log-buffer-rebase' and
              (message "GIT-REBASE-INTERACTIVE: %s" msg))
 
             ((eq res :rebase-commit)
-             (egg-commit-log-edit
-              (let* ((cherry (plist-get state :rebase-cherry))
-                     (cherry-op (save-match-data
-                                  (car (split-string cherry)))))
+             (let* ((cherry (plist-get state :rebase-cherry))
+                    (cherry-op (save-match-data
+                                 (car (split-string cherry)))))
+               (egg-commit-log-edit
                 (concat
                  (egg-text "Rebasing " 'egg-text-3)
                  (egg-text (plist-get state :rebase-head) 'egg-branch)
                  ": "
                  (egg-text (concat "Commit " cherry-op "ed cherry")
-                           'egg-text-3)))
-              `(lambda ()
-                 (let ((process-environment process-environment))
-                   (mapcar (lambda (env-lst)
-                             (setenv (car env-lst) (cadr env-lst)))
-                           (egg-rebase-author-info ,rebase-dir))
-                   (egg-log-msg-commit))
-                 (with-current-buffer ,buffer
-                   (egg-do-async-rebase-continue
-                    #'egg-handle-rebase-interactive-exit
-                    ,orig-sha1)))
-              (egg-file-as-string (concat rebase-dir "message"))))
+                           'egg-text-3))
+                `(lambda ()
+                   (let ((process-environment process-environment))
+                     (mapcar (lambda (env-lst)
+                               (setenv (car env-lst) (cadr env-lst)))
+                             (egg-rebase-author-info ,rebase-dir))
+                     (,(if (string-match "^s" cherry-op)
+                           'egg-log-msg-amend-commit
+                         'egg-log-msg-commit)))
+                   (with-current-buffer ,buffer
+                     (egg-do-async-rebase-continue
+                      #'egg-handle-rebase-interactive-exit
+                      ,orig-sha1)))
+                (egg-file-as-string (concat rebase-dir "message")))))
 
 
             ((eq res :rebase-edit)
@@ -4750,6 +4949,9 @@ marked as \"edit\".  See also `egg-log-buffer-rebase' and
         (egg-status)))))
 
 (defun egg-log-buffer-rebase (pos &optional move)
+  "Rebase the marked commits onto the commit under point.  In
+other words, take all the commits marked with +, *, or ~ and
+replay them starting at the commit that point is hovering over."
   (interactive "d\nP")
   (let ((rev (egg-log-buffer-get-rev-at pos :symbolic :no-HEAD))
         res modified-files buf)
@@ -4763,6 +4965,17 @@ marked as \"edit\".  See also `egg-log-buffer-rebase' and
         (egg-status)))))
 
 (defun egg-log-buffer-rebase-interactive (pos &optional move)
+  "Rebase HEAD to the commit under point.  This works just like
+the git command
+
+  git rebase -i
+
+except that you use an emacs buffer to specify which commits to
+pick, edit, or squash.  The rebase buffer will initially contain
+just the commits that you have marked in the log buffer, and you
+usually only have to reorder them.  If no commits are marked, egg
+will try to fill it with what git rebase -i would have given.
+"
   (interactive "d\nP")
   (let* ((state (egg-repo-state :staged :unstaged))
          (rebase-dir (concat (plist-get state :gitdir) "/"
@@ -4781,8 +4994,7 @@ marked as \"edit\".  See also `egg-log-buffer-rebase' and
           commits)
 
     (egg-setup-rebase-interactive rebase-dir upstream nil
-                                  state todo-alist)
-    (egg-status)))
+                                  state todo-alist)))
 
 (defun egg-log-buffer-checkout-commit (pos)
   (interactive "d")
@@ -5520,13 +5732,15 @@ Each remote ref on the commit line has extra extra extra keybindings:\\<egg-log-
                                (egg-text "all refs" 'egg-term))
                  :closure (lambda ()
                             (egg-log-buffer-insert-n-decorate-logs
-                             'egg-run-git-log-all)))
+                             'egg-run-git-log-all))
+                 :scope 'all)
          (list :description (concat
                              (egg-text "history scope: " 'egg-text-2)
                              (egg-text "HEAD" 'egg-term))
                :closure (lambda ()
                           (egg-log-buffer-insert-n-decorate-logs
-                           'egg-run-git-log-HEAD)))))
+                           'egg-run-git-log-HEAD))
+               :scope 'HEAD)))
       (if help (plist-put egg-internal-log-buffer-closure :help help))
       (egg-log-buffer-redisplay buf 'init))
     (cond
