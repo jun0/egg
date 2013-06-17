@@ -3663,6 +3663,16 @@ If INIT was not nil, then perform 1st-time initializations as well."
       (egg-status nil :sentinel))
     output))
 
+(defun egg-do-drop-stash (stash)
+  (let ((state (egg-repo-state))
+        output)
+
+    (setq output (egg-sync-0 "stash" "drop" stash))
+    (unless output
+      (message "GIT-STASH> failed to drop %s" stash)
+      (egg-status nil :sentinel))
+    output))
+
 (defun egg-do-pop-stash ()
   (let ((state (egg-repo-state))
         output)
@@ -5832,6 +5842,16 @@ Each remote ref on the commit line has extra extra extra keybindings:\\<egg-log-
 ;;; 			 'face 'egg-text-2)
       (forward-line 1)
       (set-buffer-modified-p nil))))
+
+(defun egg-stash-buffer-drop (pos &optional no-confirm)
+  (interactive "dP")
+  (let ((stash (get-text-property pos :stash)))
+    (when (and stash (stringp stash)
+               (or no-confirm
+                   (y-or-n-p (format "Irreversibly delete WIP %s? " stash))))
+      (when (egg-do-drop-stash stash)
+        (message "GIT-STASH> successfully deleted %s; if you didn't mean to do this then go to the reflog, right now." stash)
+        (egg-status)))))
 
 (defun egg-stash-buffer-show (pos)
   (interactive "d")
