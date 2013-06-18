@@ -1281,7 +1281,8 @@ as repo state instead of re-read from disc."
 ;;;========================================================
 
 (defsubst egg-async-process ()
-  (let* ((buffer (get-buffer-create "*egg-process*"))
+  (let* ((buffer (get-buffer-create
+                  (concat " *egg-process@" (egg-git-dir) "*")))
          (proc (get-buffer-process buffer)))
     (if (and (processp proc) 		;; is a process
              (not (eq (process-status proc) 'exit)) ;; not finised
@@ -1293,7 +1294,7 @@ as repo state instead of re-read from disc."
 if EXIT code is an exit-code from GIT other than zero but considered
 success."
   (let ((dir (file-name-directory (egg-git-dir)))
-        (buf (get-buffer-create "*egg-process*"))
+        (buf (get-buffer-create (concat " *egg-process@" (egg-git-dir) "*")))
         (inhibit-read-only inhibit-read-only)
         (accepted-msg (and (integerp exit-code)
                            (format "exited abnormally with code %d"
@@ -3782,8 +3783,7 @@ If INIT was not nil, then perform 1st-time initializations as well."
                            &optional old-base prompt)
   (let ((pre-merge (egg-get-current-sha1))
         cmd-res modified-files feed-back old-choices)
-;;;     (with-temp-buffer
-    (with-current-buffer (get-buffer-create "*egg-debug*")
+    (with-temp-buffer
       (erase-buffer)
       (when (and (stringp upstream-or-action) ;; start a rebase
                  (eq old-base t))	      ;; ask for old-base
@@ -4892,7 +4892,8 @@ lines to one line."
     (write-region egg-rebase-body-beg (1- egg-rebase-footer-beg)
                   (concat rebase-dir "git-rebase-todo.backup"))
     (setenv "GIT_REFLOG_ACTION" (format "rebase -i (%s)" onto))
-    (with-current-buffer (get-buffer-create "*egg-debug*")
+    (with-current-buffer
+        (get-buffer-create (concat "*egg-process@" (egg-git-dir) "*"))
       (egg-git-ok nil "update-ref" "ORIG_HEAD" orig-head)
       (egg-git-ok nil "checkout" onto)
       (egg-do-async-rebase-continue #'egg-handle-rebase-interactive-exit
