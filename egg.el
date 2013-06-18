@@ -535,6 +535,11 @@ desirable way to invoke gnu patch command."
   :group 'egg
   :type 'string)
 
+(defcustom egg-check-git-version t
+  "If non-nil, `egg-minor-mode' checks the version of git on the system is supported, or at least known to have been tried before."
+  :group 'egg
+  :type 'boolean)
+
 
 (defcustom egg-dummy-option nil
   "Foo bar"
@@ -6887,6 +6892,11 @@ egg in current buffer.\\<egg-minor-mode-map>
 \\{egg-minor-mode-map}
 "
   (interactive "p")
+  (unless (or (not egg-check-git-version)
+              (string-match "\\`git version 1.\\(?:7\\|8\\)."
+                            (shell-command-to-string
+                             (concat egg-git-command " --version"))))
+    (error "Error: unsupported/untested git version.  Set egg-check-git-version to nil to disable this check."))
   (setq egg-minor-mode (if (null arg)
                            (not egg-minor-mode)
                          (> arg 0)))
@@ -6900,19 +6910,16 @@ egg in current buffer.\\<egg-minor-mode-map>
 ;;;###autoload
 (defun egg-minor-mode-find-file-hook ()
   (when (egg-is-in-git)
-    (when (string-match "\\`git version 1.\\(6\\|7\\|8\\)."
-                        (shell-command-to-string
-                         (concat egg-git-command " --version")))
-      (or (assq 'egg-minor-mode minor-mode-alist)
-          (setq minor-mode-alist
-                (cons '(egg-minor-mode egg-minor-mode-name) minor-mode-alist)))
-      (setcdr (or (assq 'egg-minor-mode minor-mode-map-alist)
-                  (car (setq minor-mode-map-alist
-                             (cons (list 'egg-minor-mode)
-                                   minor-mode-map-alist))))
-              egg-minor-mode-map)
-      (make-local-variable 'egg-minor-mode)
-      (egg-minor-mode 1))))
+    (or (assq 'egg-minor-mode minor-mode-alist)
+        (setq minor-mode-alist
+              (cons '(egg-minor-mode egg-minor-mode-name) minor-mode-alist)))
+    (setcdr (or (assq 'egg-minor-mode minor-mode-map-alist)
+                (car (setq minor-mode-map-alist
+                           (cons (list 'egg-minor-mode)
+                                 minor-mode-map-alist))))
+            egg-minor-mode-map)
+    (make-local-variable 'egg-minor-mode)
+    (egg-minor-mode 1)))
 
 ;;;###autoload
 (add-hook 'find-file-hook 'egg-git-dir)
