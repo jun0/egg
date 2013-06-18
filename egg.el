@@ -2653,8 +2653,7 @@ untracked files"
                                :conflict-map egg-unmerged-hunk-section-map)
     (when egg-unstaged-section-highlight-property
       (overlay-put (make-overlay diff-beg (point))
-                   'face egg-unstaged-section-highlight-property)))
-    ))
+                   'face egg-unstaged-section-highlight-property))))
 
 (defun egg-sb-insert-staged-section (title &rest extra-diff-options)
   "Insert the staged changes section into the status buffer."
