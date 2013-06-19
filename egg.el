@@ -4519,9 +4519,9 @@ entries."
                         (1+ (line-end-position))))
         head-line))))
 
-(defsubst egg-log-buffer-insert-n-decorate-logs (log-insert-func)
+(defsubst egg-log-buffer-insert-n-decorate-logs (log-insert-func &rest args)
   (let ((beg (point)))
-    (funcall log-insert-func)
+    (apply log-insert-func args)
     (goto-char beg)
     (egg-decorate-log egg-log-commit-map
                       egg-log-local-ref-map
@@ -5875,7 +5875,7 @@ tag) or a list of such strings, but make sure you know what
 you're doing in that case."
   :group 'egg)
 
-(defun egg-log ()
+(defun egg-log (&optional scope)
   "Bring up the log buffer, which shows the repo's history and
 lets you create branches, merge, rebase, push, and fetch.
 
@@ -5900,10 +5900,12 @@ at the top of the buffer.  See also
        (make-local-variable 'egg-internal-log-buffer-closure)
        (list :closure (lambda ()
                         (egg-log-buffer-insert-n-decorate-logs
-                         #'(lambda () (egg-run-git-log egg-log-buffer-scope))))))
+                         #'egg-run-git-log egg-log-buffer-scope))))
       (unless (and (local-variable-p 'egg-log-buffer-scope)
-                   (boundp 'egg-log-buffer-scope))
-        (egg-log-buffer-set-history-scope egg-log-default-history-scope))
+                   (boundp 'egg-log-buffer-scope)
+                   (not scope))
+        (egg-log-buffer-set-history-scope
+         (or scope egg-log-default-history-scope)))
       (if help (plist-put egg-internal-log-buffer-closure :help help))
       (egg-log-buffer-redisplay buf 'init))
     (cond
@@ -5913,6 +5915,16 @@ at the top of the buffer.  See also
 ;;; file history
 ;;;========================================================
 (define-egg-buffer file-log "*%s-file-log@%s*"
+  "Major mode to display the output of git log, narrowed to
+commits that modified a specific file.  It's similar to
+`egg-log-buffer-mode', but it's for finding a particular commit.
+You don't push, fetch, merge, rebase, etc. in this buffer, but
+instead you find the commit you're interested in and press
+\\<egg-log-commit-simple-map>\\[egg-log-locate-commit] to get back to the main log buffer, with your cursor now on
+the commit you found.  Note the log buffer's history scope
+will be changed to include the commit you found, but will
+otherwise remain the same.  See `egg-log-buffer-mode' for
+an explanation of history scopes."
   (kill-all-local-variables)
   (setq buffer-read-only t)
   (setq major-mode 'egg-file-log-buffer-mode
@@ -5925,16 +5937,6 @@ at the top of the buffer.  See also
   (set (make-local-variable 'egg-log-buffer-comment-column) 0)
   (setq buffer-invisibility-spec nil)
   (run-mode-hooks 'egg-file-log-buffer-mode-hook))
-
-(defsubst egg-run-git-file-log-HEAD (file)
-  (egg-git-ok t "log" (format "--max-count=%d" egg-log-max-len)
-              "--graph" "--topo-order" "--no-color"
-              "--pretty=oneline" "--decorate" "--" file))
-
-(defsubst egg-run-git-file-log-all (file)
-  (egg-git-ok t "log" (format "--max-count=%d" egg-log-max-len)
-              "--graph" "--topo-order" "--no-color"
-              "--pretty=oneline" "--decorate" "--all" "--" file))
 
 (defconst egg-log-commit-simple-map
   (let ((map (make-sparse-keymap "Egg:FileLogCommit")))
@@ -5989,8 +5991,8 @@ at the top of the buffer.  See also
     "\\[egg-log-diff-cmd-visit-file-other-window]:visit version/line\n")
    ))
 
-(defun egg-file-log (file-name &optional all)
-  (interactive (list (buffer-file-name) current-prefix-arg))
+(defun egg-file-log (file-name)
+  (interactive (list (buffer-file-name)))
   (unless (and file-name (file-exists-p file-name))
     (error "File does not exist: %s" file-name))
   (let ((buffer (egg-get-file-log-buffer 'create))
@@ -6000,19 +6002,15 @@ at the top of the buffer.  See also
     (with-current-buffer buffer
       (set
        (make-local-variable 'egg-internal-log-buffer-closure)
-       (if all
-           (list :title title
-                 :description (concat (egg-text "scope: " 'egg-text-2)
-                                      (egg-text "all refs" 'egg-branch-mono))
-                 :closure `(lambda ()
-                             (egg-log-buffer-decorate-logs-simple
-                              #'egg-run-git-file-log-all ,file-name)))
-         (list :title title
-               :description (concat (egg-text "scope: " 'egg-text-2)
-                                    (egg-text "HEAD" 'egg-branch-mono))
-               :closure `(lambda ()
-                           (egg-log-buffer-decorate-logs-simple
-                            #'egg-run-git-file-log-HEAD ,file-name)))))
+       (list :title title
+             :closure `(lambda ()
+                         (egg-log-buffer-decorate-logs-simple
+                          #'egg-run-git-log
+                          egg-log-buffer-scope
+                          ,file-name))))
+      (unless (and (local-variable-p 'egg-log-buffer-scope)
+                   (boundp 'egg-log-buffer-scope))
+        (egg-log-buffer-set-history-scope egg-log-default-history-scope))
       (when (memq :file-log egg-show-key-help-in-buffers)
         (setq help egg-file-log-help-text))
       (if help (plist-put egg-internal-log-buffer-closure :help help)))
@@ -6033,29 +6031,26 @@ at the top of the buffer.  See also
     map))
 
 (defun egg-log-locate-commit (pos)
+  "Grab the commit under point in the file log buffer, locate the
+same commit in the log buffer, and jump there."
   (interactive "d")
   (let ((sha1 (get-text-property pos :commit))
         (buf (egg-get-log-buffer 'create)))
-    (with-current-buffer buf
-      (set (make-local-variable 'egg-internal-log-buffer-closure)
-           (list :description
-                 (concat (egg-text "history scope: " 'egg-text-2)
-                         (egg-text "HEAD" 'egg-term)
-                         (egg-text " and " 'egg-text-2)
-                         (egg-text sha1 'egg-term))
-                 :closure
-                 (lambda ()
-                   (egg-log-buffer-insert-n-decorate-logs
-                    `(lambda ()
-                       (egg-git-ok t "log" "--max-count=10000" "--graph"
-                                   "--topo-order" "--pretty=oneline" "--no-color"
-                                   "--decorate" "HEAD" sha1))))))
-      (egg-log-buffer-redisplay buf)
-      (setq pos (point-min))
-      (while (and pos
-                  (not (equal (get-text-property pos :commit) sha1)))
-        (setq pos (next-single-property-change pos :commit))))
-    (pop-to-buffer buf t)
+    (egg-log
+     ;; Append sha1 to the log buffer's scope, or set it to HEAD sha1 if the
+     ;; log buffer isn't already open.
+     (with-current-buffer buf
+       (if (and (local-variable-p 'egg-log-buffer-scope)
+                (boundp 'egg-log-buffer-scope)
+                (not (equal egg-log-buffer-scope "--all")))
+           (if (stringp egg-log-buffer-scope)
+               (list egg-log-buffer-scope sha1)
+             (append egg-log-buffer-scope (list sha1)))
+         (list "HEAD" sha1))))
+    (setq pos (point-min))
+    (while (and pos
+                (not (equal (get-text-property pos :commit) sha1)))
+      (setq pos (next-single-property-change pos :commit)))
     (egg-log-buffer-goto-pos pos)
     (recenter)))
 
