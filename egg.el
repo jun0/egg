@@ -4237,19 +4237,26 @@ If INIT was not nil, then perform 1st-time initializations as well."
 (defvar egg-log-buffer-comment-column nil)
 (defvar egg-internal-log-buffer-closure nil)
 
-(defun egg-run-git-log (scope &optional refs-only)
+(defun egg-run-git-log (scope &optional file refs-only)
   "Runs git log --graph and inserts the result into the current
 buffer at point.  SCOPE should be a string indicating a commit or
-range of commits, to which display should focus.  It should be
-\"--all\" if all recent commits are required.  If REFS-ONLY is
+range of commits, or a list of such arguments.  It should be the
+string \"--all\" if all recent commits are required.  If FILE is
+non-nil, then it is passed to git after \"--\", the effect being
+to focus on changes to that particular file.  If REFS-ONLY is
 non-nil, then only those commits associated to a branch or tag
 are shown.  `egg-log-max-len' controls the maximum number of
 entries."
-  (let ((extra-args (if refs-only (list "--simplify-by-decoration") nil)))
+  (let ((extra-args (if file (list "--" file) nil)))
+    (when refs-only
+      (setq extra-args (cons "--simplify-by-decoration" extra-args)))
     (apply 'egg-git-ok
            t "log" (format "--max-count=%d" egg-log-max-len)
            "--graph" "--topo-order" "--pretty=oneline" "--decorate"
-           "--no-color" (if scope scope "--all") extra-args)))
+           "--no-color"
+           (if (stringp scope)
+               (cons scope extra-args)
+             (append scope extra-args)))))
 
 (defun egg-run-git-log-pickaxe (string)
   (egg-git-ok t "log" "--pretty=oneline" "--decorate" "--no-color"
@@ -5408,19 +5415,21 @@ will try to fill it with what git rebase -i would have given.
 shortened sha1 represents a commit in the repo's history.
 `egg-log-max-len' controls how many commits are shown.
 
-The line saying \"history scope:\" tells which commits are
-displayed.  For example, when it says \"history scope: HEAD\"
-then only those commits leading up to HEAD are displayed.  The
-default scope is \"all refs\" (aliases \"all\" and \"--all\")
-meaning all recent commits are shown, including unmerged
-branches.  This scope is often necessary to select unmerged
+The line saying \"history scope:\" shows arguments passed to git,
+and controls which commits are displayed.  For example, when it
+says \"history scope: HEAD\" then only those commits leading up
+to HEAD are displayed and unmerged branches are omitted, just
+like git log HEAD.  The default scope is \"all refs\" meaning all
+recent commits are shown, including unmerged branches (i.e. it's
+git log --all).  This scope is often necessary to select unmerged
 branches in order to start a merge or rebase.
 
 \\<egg-log-buffer-history-scope-map>\
 To change the history scope temporarily, type \\[egg-log-buffer-edit-history-scope] on the
-\"history scope:\" line and enter a commit sha1, a range, or any
-other argument you can give to git log.  The default scope can be
-changed by customizing `egg-log-default-history-scope'.
+\"history scope:\" line and enter a space-separated list of SHA1
+hashes, ranges of hashes, or any other argument you can give to
+git log.  The default scope can be changed by customizing
+`egg-log-default-history-scope'.
 
 Other common keys are:\\<egg-log-buffer-mode-map>
 
@@ -5793,17 +5802,17 @@ Each remote ref on the commit line has extra extra extra keybindings:\\<egg-log-
 
 (defun egg-log-buffer-set-history-scope (new-scope)
   "Update the history scope.  Do not redisplay, but simply update
-internal state variables.  Raises an error if NEW-SCOPE is
-invalid."
+internal state variables.  Signals 'egg-log-invalid-scope with
+git's error message if NEW-SCOPE is invalid."
   (setq new-scope
         (if (member new-scope '("--all" "all refs" "all"))
             "--all"
           new-scope))
   (with-temp-buffer
-    (unless (egg-git-ok t "log" "--max-count=0" new-scope)
-      (error "Invalid history scope %s.  git said:\n%s"
-             new-scope (buffer-string))))
-  (setq egg-log-buffer-scope new-scope)
+    (unless (let ((egg-log-max-len 0)) (egg-run-git-log new-scope))
+      (put 'egg-log-invalid-scope 'error-conditions '(egg-log-invalid-scope))
+      (signal 'egg-log-invalid-scope (buffer-string))))
+  (set (make-local-variable 'egg-log-buffer-scope) new-scope)
   (let ((key-for-editing (where-is-internal
                           'egg-log-buffer-edit-history-scope
                           egg-log-buffer-history-scope-map t)))
@@ -5813,31 +5822,42 @@ invalid."
      (propertize
       (concat
        (egg-text "history scope: " 'egg-text-2)
-       (egg-text (if (equal egg-log-buffer-scope "--all")
-                     "all refs"
-                   egg-log-buffer-scope)
-                 'egg-term)
+       (if (stringp egg-log-buffer-scope)
+           (egg-text (if (equal egg-log-buffer-scope "--all")
+                         "all refs"
+                       egg-log-buffer-scope)
+                     'egg-term)
+         (mapconcat (lambda (s) (egg-text s 'egg-term))
+                    egg-log-buffer-scope
+                    (egg-text " " 'egg-text-2)))
        (egg-text (concat " (edit with " (key-description key-for-editing) ")")
                  'egg-text-help))
       'keymap egg-log-buffer-history-scope-map))))
-
 (defun egg-log-buffer-edit-history-scope ()
-  "Change the history scope.  See `egg-log-buffer-mode' for details."
+  "Edit the history scope, which should be a space-separated list
+of references (tags and branches) and/or SHA1 hashes.  It can
+also be the special string \"all\" (without quotes).  See
+`egg-log-buffer-mode' for more information."
   (interactive)
-  (let (done (def ""))
+  (let (done (def '("")))
     (while (not done)
+      (setq def
+            (let ((crm-separator "[ \f\t\n\r\v]+"))
+              (completing-read-multiple
+               "commit/ref(s) you want to see: "
+               (cons "--all" (cons "all refs" (egg-all-refs)))
+               nil nil (mapconcat 'identity def " "))))
+      (when (member def '(("all") ("all" "refs") ("--all")))
+        (setq def "--all"))
       (condition-case err
           (progn
-            (setq def
-                  (completing-read
-                   "restrict log to commit/branch/tag: "
-                   (cons "--all" (cons "all refs" (egg-all-refs)))
-                   nil nil def))
             (egg-log-buffer-set-history-scope def)
             (setq done t))
-        (error
-         (display-warning 'egg (cadr err) :error)))))
-  (egg-log-buffer-redisplay (current-buffer) 'init)
+        (egg-log-invalid-scope
+         (display-warning 'egg (cdr err) :error)))))
+  (if (eq major-mode 'egg-log-buffer-mode)
+      (egg-log-buffer-redisplay (current-buffer) 'init)
+    (egg-log-buffer-simple-redisplay (current-buffer) 'init))
   (goto-char (point-min))
   (re-search-forward "^history scope:"))
 
@@ -5848,9 +5868,12 @@ invalid."
 
 (defcustom egg-log-default-history-scope "all refs"
   "The default history scope to be brought up when the log buffer
-is started for the first time with `egg-log'."
-  :group 'egg
-  :type 'string)
+is started for the first time with `egg-log'.  It should be a
+string, usually \"all refs\" or \"HEAD\".  You can also set it to
+a string indicating an SHA1 hash or a ref name (i.e. branch or
+tag) or a list of such strings, but make sure you know what
+you're doing in that case."
+  :group 'egg)
 
 (defun egg-log ()
   "Bring up the log buffer, which shows the repo's history and
