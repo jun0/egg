@@ -371,13 +371,8 @@ Many Egg faces inherit from this one by default."
               (const :tag "Diff Buffer"     egg-diff-buffer-mode)
               (const :tag "Commit Buffer"   egg-commit-buffer-mode)))
 
-(defcustom egg-log-HEAD-max-len 1000
-  "Maximum number of entries when showing the history of HEAD."
-  :group 'egg
-  :type 'integer)
-
-(defcustom egg-log-all-max-len 10000
-  "Maximum number of entries when showing the history of HEAD."
+(defcustom egg-log-max-len 1000
+  "Maximum number of entries to show in the log buffer's history graph."
   :group 'egg
   :type 'integer)
 
@@ -4242,23 +4237,19 @@ If INIT was not nil, then perform 1st-time initializations as well."
 (defvar egg-log-buffer-comment-column nil)
 (defvar egg-internal-log-buffer-closure nil)
 
-(defun egg-run-git-log-HEAD (&optional refs-only)
-  (if refs-only
-      (egg-git-ok t "log" (format "--max-count=%d" egg-log-HEAD-max-len)
-                  "--graph" "--topo-order" "--simplify-by-decoration"
-                  "--pretty=oneline" "--decorate" "--no-color")
-    (egg-git-ok t "log" (format "--max-count=%d" egg-log-HEAD-max-len)
-                "--graph" "--topo-order"
-                "--pretty=oneline" "--decorate" "--no-color")))
-
-(defun egg-run-git-log-all (&optional refs-only)
-  (if refs-only
-      (egg-git-ok t "log" (format "--max-count=%d" egg-log-all-max-len)
-                  "--graph" "--topo-order" "--simplify-by-decoration"
-                  "--pretty=oneline" "--decorate" "--all" "--no-color")
-    (egg-git-ok t "log" (format "--max-count=%d" egg-log-all-max-len)
-                "--graph" "--topo-order"
-                "--pretty=oneline" "--decorate" "--all" "--no-color")))
+(defun egg-run-git-log (scope &optional refs-only)
+  "Runs git log --graph and inserts the result into the current
+buffer at point.  SCOPE should be a string indicating a commit or
+range of commits, to which display should focus.  It should be
+\"--all\" if all recent commits are required.  If REFS-ONLY is
+non-nil, then only those commits associated to a branch or tag
+are shown.  `egg-log-max-len' controls the maximum number of
+entries."
+  (let ((extra-args (if refs-only (list "--simplify-by-decoration") nil)))
+    (apply 'egg-git-ok
+           t "log" (format "--max-count=%d" egg-log-max-len)
+           "--graph" "--topo-order" "--pretty=oneline" "--decorate"
+           "--no-color" (if scope scope "--all") extra-args)))
 
 (defun egg-run-git-log-pickaxe (string)
   (egg-git-ok t "log" "--pretty=oneline" "--decorate" "--no-color"
@@ -4675,7 +4666,7 @@ marked as \"edit\".  See also `egg-log-buffer-rebase' and
   (kill-all-local-variables)
   (setq default-directory (file-name-directory (egg-git-dir)))
   (use-local-map egg-rebase-script-mode-map)
-  (make-local-variable 'egg-internal-rebase-buffer-closure)
+  (make-local-variable 'egg-rebase-buffer-scope)
   (make-local-variable 'egg-rebase-buffer-orig-head)
   (make-local-variable 'egg-rebase-buffer-onto)
   (make-local-variable 'egg-rebase-buffer-upstream)
@@ -4778,6 +4769,7 @@ lines to one line."
         (log-buffer (current-buffer))
         (log-buffer-closure egg-internal-log-buffer-closure)
         (orig-head (plist-get repo-state :sha1))
+        (scope egg-log-buffer-scope)
         tree-beg
         rebase-buf)
     (unless (egg-repo-clean repo-state) (error "Repo not clean"))
@@ -4790,11 +4782,11 @@ lines to one line."
       (with-current-buffer rebase-buf
         (buffer-disable-undo)
         ;; Save information that will be used in `egg-rebase-script-done'.
-        (setq egg-internal-rebase-buffer-closure log-buffer-closure)
         (setq egg-rebase-buffer-orig-head orig-head)
         (setq egg-rebase-buffer-onto onto)
         (setq egg-rebase-buffer-upstream upstream)
         (setq egg-rebase-buffer-rebase-dir rebase-dir)
+        (setq egg-rebase-buffer-scope scope)
 
         (insert
          (egg-text
@@ -4843,10 +4835,7 @@ lines to one line."
                           'front-sticky nil
                           'face 'font-lock-comment-face))
         (setq tree-beg (point))
-        (case (plist-get egg-internal-rebase-buffer-closure :scope)
-          ((all) (egg-run-git-log-all))
-          ((HEAD) (egg-run-git-log-HEAD))
-          (t (error "egg-internal-rebase-buffer-closure not set")))
+        (egg-run-git-log egg-rebase-buffer-scope)
         (goto-char tree-beg)
         (egg-decorate-log)
         (goto-char tree-beg)
@@ -5415,8 +5404,26 @@ will try to fill it with what git rebase -i would have given.
   (egg-log-buffer-redisplay buffer))
 
 (define-egg-buffer log "*%s-log@%s*"
-  "Major mode to display the output of git log.\\<egg-log-buffer-mode-map>
-Each line with a shorten sha1 representing a commit in the repo's history.
+  "Major mode to display the output of git log.  Each line with a
+shortened sha1 represents a commit in the repo's history.
+`egg-log-max-len' controls how many commits are shown.
+
+The line saying \"history scope:\" at the top of the buffer shows
+which commits are selected for display.  Initially the scope is
+\"--all\", meaning all recent commits are shown, including those
+on unmerged branches.  This scope is necessary to select unmerged
+branches and merge it.
+\\<egg-log-buffer-history-scope-map>
+Typing \\[egg-log-buffer-edit-history-scope] on the \"history scope:\" line lets you change the
+history scope, which should be a commit or range of commits.  The
+log buffer will be re-displayed and show only those commits that
+lead up to the commit(s) specified in the history scope.  For
+example, if you specify history scope \"HEAD\", then only the
+ancestors of HEAD will be displayed.  The scope is reset when the
+log buffer is killed.
+
+Other common keys are:\\<egg-log-buffer-mode-map>
+
 \\[egg-log-buffer-next-ref] move the cursor to the next commit with a ref
 \\[egg-log-buffer-prev-ref] move the cursor to the previous commit line with a ref.
 \\[egg-buffer-cmd-refresh] refresh the display of the log buffer
@@ -5784,34 +5791,89 @@ Each remote ref on the commit line has extra extra extra keybindings:\\<egg-log-
     (setq buf (egg-do-diff (egg-build-diff-info rev base)))
     (pop-to-buffer buf t)))
 
-(defun egg-log (&optional all)
-  (interactive "P")
+(defun egg-log-buffer-set-history-scope (new-scope)
+  "Update the history scope.  Do not redisplay, but simply update
+internal state variables.  Raises an error if NEW-SCOPE is
+invalid."
+  (setq new-scope
+        (if (member new-scope '("--all" "all refs" "all"))
+            "--all"
+          new-scope))
+  (with-temp-buffer
+    (unless (egg-git-ok t "log" "--max-count=0" new-scope)
+      (error "Invalid history scope %s.  git said:\n%s"
+             new-scope (buffer-string))))
+  (setq egg-log-buffer-scope new-scope)
+  (let ((key-for-editing (where-is-internal
+                          'egg-log-buffer-edit-history-scope
+                          egg-log-buffer-history-scope-map t)))
+    (plist-put
+     egg-internal-log-buffer-closure
+     :description
+     (propertize
+      (concat
+       (egg-text "history scope: " 'egg-text-2)
+       (egg-text (if (equal egg-log-buffer-scope "--all")
+                     "all refs"
+                   egg-log-buffer-scope)
+                 'egg-term)
+       (egg-text (concat " (edit with " (key-description key-for-editing) ")")
+                 'egg-text-help))
+      'keymap egg-log-buffer-history-scope-map))))
+
+(defun egg-log-buffer-edit-history-scope ()
+  "Change the history scope.  See `egg-log-buffer-mode' for details."
+  (interactive)
+  (let (done (def ""))
+    (while (not done)
+      (condition-case err
+          (progn
+            (setq def
+                  (completing-read
+                   "restrict log to commit/branch/tag: "
+                   (cons "--all" (cons "all refs" (egg-all-refs)))
+                   nil nil def))
+            (egg-log-buffer-set-history-scope def)
+            (setq done t))
+        (error
+         (display-warning 'egg (cadr err) :error)))))
+  (egg-log-buffer-redisplay (current-buffer) 'init)
+  (goto-char (point-min))
+  (re-search-forward "^history scope:"))
+
+(defconst egg-log-buffer-history-scope-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "RET") 'egg-log-buffer-edit-history-scope)
+    map))
+
+(defun egg-log ()
+  "Bring up the log buffer, which shows the repo's history and
+lets you create branches, merge, rebase, push, and fetch.
+
+Corresponding git command is
+
+git log --graph --all
+
+where the '--all' can be changed by editing the \"history
+scope:\" line at the top of the buffer."
+  (interactive)
   (let* ((egg-internal-current-state
           (egg-repo-state (if (invoked-interactively-p) :error-if-not-git)))
          (git-dir (egg-git-dir (invoked-interactively-p)))
          (default-directory (file-name-directory git-dir))
          (buf (egg-get-log-buffer 'create))
-         help)
+         description description-keymap help)
     (with-current-buffer buf
       (when (memq :log egg-show-key-help-in-buffers)
         (setq help egg-log-buffer-help-text))
       (set
        (make-local-variable 'egg-internal-log-buffer-closure)
-       (if all
-           (list :description (concat
-                               (egg-text "history scope: " 'egg-text-2)
-                               (egg-text "all refs" 'egg-term))
-                 :closure (lambda ()
-                            (egg-log-buffer-insert-n-decorate-logs
-                             'egg-run-git-log-all))
-                 :scope 'all)
-         (list :description (concat
-                             (egg-text "history scope: " 'egg-text-2)
-                             (egg-text "HEAD" 'egg-term))
-               :closure (lambda ()
-                          (egg-log-buffer-insert-n-decorate-logs
-                           'egg-run-git-log-HEAD))
-               :scope 'HEAD)))
+       (list :closure (lambda ()
+                        (egg-log-buffer-insert-n-decorate-logs
+                         #'(lambda () (egg-run-git-log egg-log-buffer-scope))))))
+      (unless (and (local-variable-p 'egg-log-buffer-scope)
+                   (boundp 'egg-log-buffer-scope))
+        (egg-log-buffer-set-history-scope "--all"))
       (if help (plist-put egg-internal-log-buffer-closure :help help))
       (egg-log-buffer-redisplay buf 'init))
     (cond
@@ -5835,12 +5897,12 @@ Each remote ref on the commit line has extra extra extra keybindings:\\<egg-log-
   (run-mode-hooks 'egg-file-log-buffer-mode-hook))
 
 (defsubst egg-run-git-file-log-HEAD (file)
-  (egg-git-ok t "log" (format "--max-count=%d" egg-log-HEAD-max-len)
+  (egg-git-ok t "log" (format "--max-count=%d" egg-log-max-len)
               "--graph" "--topo-order" "--no-color"
               "--pretty=oneline" "--decorate" "--" file))
 
 (defsubst egg-run-git-file-log-all (file)
-  (egg-git-ok t "log" (format "--max-count=%d" egg-log-all-max-len)
+  (egg-git-ok t "log" (format "--max-count=%d" egg-log-max-len)
               "--graph" "--topo-order" "--no-color"
               "--pretty=oneline" "--decorate" "--all" "--" file))
 
@@ -5851,9 +5913,9 @@ Each remote ref on the commit line has extra extra extra keybindings:\\<egg-log-
     (define-key map (kbd "C-c C-c") 'egg-log-locate-commit)
     map))
 
-(defsubst egg-log-buffer-decorate-logs-simple (log-insert-func arg)
+(defsubst egg-log-buffer-decorate-logs-simple (log-insert-func &rest args)
   (let ((beg (point)))
-    (funcall log-insert-func arg)
+    (apply log-insert-func args)
     (unless (= (char-before (point-max)) ?\n)
       (goto-char (point-max))
       (insert ?\n))
