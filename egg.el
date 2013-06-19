@@ -5408,19 +5408,19 @@ will try to fill it with what git rebase -i would have given.
 shortened sha1 represents a commit in the repo's history.
 `egg-log-max-len' controls how many commits are shown.
 
-The line saying \"history scope:\" at the top of the buffer shows
-which commits are selected for display.  Initially the scope is
-\"--all\", meaning all recent commits are shown, including those
-on unmerged branches.  This scope is necessary to select unmerged
-branches and merge it.
-\\<egg-log-buffer-history-scope-map>
-Typing \\[egg-log-buffer-edit-history-scope] on the \"history scope:\" line lets you change the
-history scope, which should be a commit or range of commits.  The
-log buffer will be re-displayed and show only those commits that
-lead up to the commit(s) specified in the history scope.  For
-example, if you specify history scope \"HEAD\", then only the
-ancestors of HEAD will be displayed.  The scope is reset when the
-log buffer is killed.
+The line saying \"history scope:\" tells which commits are
+displayed.  For example, when it says \"history scope: HEAD\"
+then only those commits leading up to HEAD are displayed.  The
+default scope is \"all refs\" (aliases \"all\" and \"--all\")
+meaning all recent commits are shown, including unmerged
+branches.  This scope is often necessary to select unmerged
+branches in order to start a merge or rebase.
+
+\\<egg-log-buffer-history-scope-map>\
+To change the history scope temporarily, type \\[egg-log-buffer-edit-history-scope] on the
+\"history scope:\" line and enter a commit sha1, a range, or any
+other argument you can give to git log.  The default scope can be
+changed by customizing `egg-log-default-history-scope'.
 
 Other common keys are:\\<egg-log-buffer-mode-map>
 
@@ -5846,6 +5846,12 @@ invalid."
     (define-key map (kbd "RET") 'egg-log-buffer-edit-history-scope)
     map))
 
+(defcustom egg-log-default-history-scope "all refs"
+  "The default history scope to be brought up when the log buffer
+is started for the first time with `egg-log'."
+  :group 'egg
+  :type 'string)
+
 (defun egg-log ()
   "Bring up the log buffer, which shows the repo's history and
 lets you create branches, merge, rebase, push, and fetch.
@@ -5854,8 +5860,9 @@ Corresponding git command is
 
 git log --graph --all
 
-where the '--all' can be changed by editing the \"history
-scope:\" line at the top of the buffer."
+where the '--all' can be changed at the \"history scope:\" line
+at the top of the buffer.  See also
+`egg-log-default-history-scope'."
   (interactive)
   (let* ((egg-internal-current-state
           (egg-repo-state (if (invoked-interactively-p) :error-if-not-git)))
@@ -5873,7 +5880,7 @@ scope:\" line at the top of the buffer."
                          #'(lambda () (egg-run-git-log egg-log-buffer-scope))))))
       (unless (and (local-variable-p 'egg-log-buffer-scope)
                    (boundp 'egg-log-buffer-scope))
-        (egg-log-buffer-set-history-scope "--all"))
+        (egg-log-buffer-set-history-scope egg-log-default-history-scope))
       (if help (plist-put egg-internal-log-buffer-closure :help help))
       (egg-log-buffer-redisplay buf 'init))
     (cond
