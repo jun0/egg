@@ -799,8 +799,10 @@ END-RE is the regexp to match the end of a record."
       lst)))
 
 (defsubst egg-is-in-git ()
-  "is the default-directory in a git repo."
-  (= (call-process egg-git-command nil nil nil "rev-parse" "--git-dir") 0))
+  "Checks if default-directory is in a git repo."
+  (condition-case err
+      (= (call-process egg-git-command nil nil nil "rev-parse" "--git-dir") 0)
+    (file-error nil)))
 
 (defsubst egg-is-dir-in-git (dir)
   "is DIR in a git repo."
