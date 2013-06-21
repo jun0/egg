@@ -4269,24 +4269,28 @@ passed to git after \"--\", the effect being to focus on changes
 to that particular file.  If REFS-ONLY is non-nil, then only
 those commits associated to a branch or tag are shown.
 `egg-log-max-len' controls the maximum number of entries."
-  (let ((extra-args (if file (list "--" file) nil)))
+  (let ((args (if file (list "--" file) nil)))
     (when refs-only
       (setq extra-args (cons "--simplify-by-decoration" extra-args)))
     ;; Search for "--salvage" and translate it into a call to git fsck
     ;; --unreachable.
-    (when (member "--salvage" scope)
-      (setq scope
-            (loop for s in scope
-                  if (equal s "--salvage")
-                     nconc (egg-list-unreachable-commits) into result
-                  else
-                     collect s into result
-                  finally return result)))
+    (setq
+     args
+     (if (member "--salvage" scope)
+         (nconc
+          (loop for s in scope
+                if (equal s "--salvage")
+                nconc (egg-list-unreachable-commits) into result
+                else
+                collect s into result
+                finally return result)
+          args)
+       (append scope args)))
     (apply 'egg-git-ok
            t "log" (format "--max-count=%d" egg-log-max-len)
            "--graph" "--topo-order" "--pretty=oneline" "--decorate"
            "--no-color"
-           (nconc scope extra-args))))
+           args)))
 
 (defun egg-run-git-log-pickaxe (string)
   (egg-git-ok t "log" "--pretty=oneline" "--decorate" "--no-color"
@@ -6024,7 +6028,7 @@ at the top of the buffer.  See also `egg-log-buffer-mode' and
          (git-dir (egg-git-dir (invoked-interactively-p)))
          (default-directory (file-name-directory git-dir))
          (buf (egg-get-log-buffer 'create))
-         description description-keymap help)
+         description help)
     (with-current-buffer buf
       (when (memq :log egg-show-key-help-in-buffers)
         (setq help egg-log-buffer-help-text))
@@ -6033,10 +6037,11 @@ at the top of the buffer.  See also `egg-log-buffer-mode' and
        (list :closure (lambda ()
                         (egg-log-buffer-insert-n-decorate-logs
                          #'egg-run-git-log egg-log-buffer-scope))))
-      (unless (and (local-variable-p 'egg-log-buffer-scope)
-                   (boundp 'egg-log-buffer-scope)
-                   (not scope))
-        (egg-log-buffer-set-history-scope
+      (egg-log-buffer-set-history-scope
+       (if (and (local-variable-p 'egg-log-buffer-scope)
+                (boundp 'egg-log-buffer-scope)
+                (not scope))
+           egg-log-buffer-scope
          (or scope egg-log-default-history-scope)))
       (if help (plist-put egg-internal-log-buffer-closure :help help))
       (egg-log-buffer-redisplay buf 'init))
@@ -6140,9 +6145,11 @@ an explanation of history scopes."
                           #'egg-run-git-log
                           egg-log-buffer-scope
                           ,file-name))))
-      (unless (and (local-variable-p 'egg-log-buffer-scope)
-                   (boundp 'egg-log-buffer-scope))
-        (egg-log-buffer-set-history-scope egg-log-default-history-scope))
+      (egg-log-buffer-set-history-scope
+       (if (and (local-variable-p 'egg-log-buffer-scope)
+                (boundp 'egg-log-buffer-scope))
+           egg-log-buffer-scope
+         egg-log-default-history-scope))
       (when (memq :file-log egg-show-key-help-in-buffers)
         (setq help egg-file-log-help-text))
       (if help (plist-put egg-internal-log-buffer-closure :help help)))
