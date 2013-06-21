@@ -6106,7 +6106,7 @@ same commit in the log buffer, and jump there."
 ;;;========================================================
 (defsubst egg-run-reflog-branch (branch)
   (egg-git-ok t "log" "-g" "--pretty=oneline" "--decorate" "--no-color"
-              (format "--max-count=%d" egg-log-HEAD-max-len)
+              (format "--max-count=%d" egg-log-max-len)
               branch))
 
 (define-egg-buffer reflog "*%s-reflog@%s*"
