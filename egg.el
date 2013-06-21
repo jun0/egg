@@ -6135,7 +6135,7 @@ Each remote ref on the commit line has extra extra extra keybindings:\\<egg-log-
                (or no-confirm
                    (y-or-n-p (format "Irreversibly delete WIP %s? " stash))))
       (when (egg-do-drop-stash stash)
-        (message "GIT-STASH> successfully deleted %s; if you didn't mean to do this then go to the reflog, right now." stash)
+        (message "GIT-STASH> successfully deleted %s" stash)
         (egg-status)))))
 
 (defun egg-stash-buffer-show (pos)
