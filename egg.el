@@ -5412,27 +5412,42 @@ will try to fill it with what git rebase -i would have given.
   (egg-log-buffer-redisplay buffer))
 
 (define-egg-buffer log "*%s-log@%s*"
-  "Major mode to display the output of git log.  Each line with a
-shortened sha1 represents a commit in the repo's history.
+  "Major mode to display the output of git log.  You can read the
+logs, merge, rebase, push, fetch, manage branches and tags, and
+recover lost commits or stashes in this buffer.  Each line with a
+shortened SHA1 represents a commit in the repo's history.
 `egg-log-max-len' controls how many commits are shown.
 
-The line saying \"history scope:\" shows arguments passed to git,
-and controls which commits are displayed.  For example, when it
-says \"history scope: HEAD\" then only those commits leading up
-to HEAD are displayed and unmerged branches are omitted, just
-like git log HEAD.  The default scope is \"all refs\" meaning all
-recent commits are shown, including unmerged branches (i.e. it's
-git log --all).  This scope is often necessary to select unmerged
-branches in order to start a merge or rebase.
+The \"history scope:\" line shows arguments passed to git, and
+controls which commits are displayed.  For example, when it says
+\"history scope: HEAD\" then only those commits leading up to
+HEAD are displayed and unmerged branches are omitted, just like
+git log HEAD.
 
 \\<egg-log-buffer-history-scope-map>\
-To change the history scope temporarily, type \\[egg-log-buffer-edit-history-scope] on the
-\"history scope:\" line and enter a space-separated list of SHA1
-hashes, ranges of hashes, or any other argument you can give to
-git log.  The default scope can be changed by customizing
+To change the history scope temporarily, type \\[egg-log-buffer-edit-history-scope]
+on the \"history scope:\" line and enter a space-separated list
+of revisions (SHA1 hashes, tags, ranges of hashes, or anything
+else you can give to git log -- see manpage gitrevisions(7)).
+These strings have special meanings (don't enter the quotes):
+
+  * \"--all\" means all tags and branches, like git log --all.
+    This scope usually works best for merging and rebasing,
+    because you need to get at unmerged branches.
+
+  * \"--salvage\" means commits that are unreachable but not yet
+    garbage collected, i.e. this lets you access lost commits and
+    stashes.  You can combine this with other scopes; e.g. try
+    \"--salvage --all\" and \"--salvage HEAD\".  The underlying
+    git command is git log \\`git fsck --unreachable\\`.
+    Warning: this feature is experimental.  It doesn't work on
+             Windows and it might not scale to a repo that has
+             a lot of uncollected garbage.
+
+The default scope is \"all\", which can be changed by customizing
 `egg-log-default-history-scope'.
 
-Other common keys are:\\<egg-log-buffer-mode-map>
+Keys common to the whole buffer are:\\<egg-log-buffer-mode-map>
 
 \\[egg-log-buffer-next-ref] move the cursor to the next commit with a ref
 \\[egg-log-buffer-prev-ref] move the cursor to the previous commit line with a ref.
@@ -5450,13 +5465,14 @@ Each line representing a commit has extra keybindings:\\<egg-log-commit-map>
 \\[egg-log-buffer-checkout-commit] checkout the current commit.
 \\[egg-log-buffer-tag-commit] create a new lightweight tag pointing at the current commit.
 \\[egg-log-buffer-attach-head] move HEAD (and maybe the current branch tip) to the
-current commit (the underlying git command is `reset --soft'.
+  current commit (the underlying git command is `reset --soft'.
+\\[egg-log-buffer-commit-to-stash] convert the current commit into a stash.
 C-u \\[egg-log-buffer-attach-head] move HEAD (and maybe the current branch tip) as well as
 the index to the current commit (the underlying git command
 is `reset --mixed'.)
 C-u C-u \\[egg-log-buffer-attach-head] move HEAD (and maybe the current branch tip) and
-the index to the current commit, the work dir will also be
-updated (the underlying git command is `reset --hard').
+        the index to the current commit, the work dir will also be
+       updated (the underlying git command is `reset --hard').
 \\[egg-log-buffer-merge] will merge the current commit into HEAD.
 C-u \\[egg-log-buffer-merge] will merge the current commit into HEAD but will not
 auto-commit if the merge was successful.
@@ -5885,7 +5901,7 @@ Corresponding git command is
 git log --graph --all
 
 where the '--all' can be changed at the \"history scope:\" line
-at the top of the buffer.  See also
+at the top of the buffer.  See also `egg-log-buffer-mode' and
 `egg-log-default-history-scope'."
   (interactive)
   (let* ((egg-internal-current-state
