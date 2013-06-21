@@ -4238,26 +4238,55 @@ If INIT was not nil, then perform 1st-time initializations as well."
 (defvar egg-log-buffer-comment-column nil)
 (defvar egg-internal-log-buffer-closure nil)
 
+(defun egg-list-unreachable-commits (&optional max-len)
+  "Return a list of SHA1 hashes of commits which are unreachable
+but not yet garbage collected.  Commits which are only reachable
+from reflogs are considered unreachable.  The return list's
+length will be at most MAX-LEN, which defaults to
+`egg-log-max-len'.  This will probably not work on non-POSIX
+systems."
+  (with-temp-buffer
+    ;; If we do the grep + head + cut on our own we can probably
+    ;; make this to work on Windows, but I'd worry about the
+    ;; performance.
+    (let ((exit-code (call-process-shell-command
+                      (format
+                       "git fsck --unreachable --no-reflogs | grep commit \
+                        | head -n %d | cut -f 3 -d ' '"
+                       (or max-len egg-log-max-len))
+                      nil (current-buffer))))
+      (unless (equal exit-code 0)
+        (error "git fsck failed!%s"
+               (if (stringp exit-code) (concat ": " exit-code) ""))))
+    (split-string (buffer-string) "\n" t)))
+
 (defun egg-run-git-log (scope &optional file refs-only)
   "Runs git log --graph and inserts the result into the current
-buffer at point.  SCOPE should be a string indicating a commit or
-range of commits, or a list of such arguments.  It should be the
-string \"--all\" if all recent commits are required.  If FILE is
-non-nil, then it is passed to git after \"--\", the effect being
-to focus on changes to that particular file.  If REFS-ONLY is
-non-nil, then only those commits associated to a branch or tag
-are shown.  `egg-log-max-len' controls the maximum number of
-entries."
+buffer at point.  SCOPE should be a list of arguments to pass to
+git log.  The special argument --salvage is translated to the
+output of git fsck --unreachable.  If FILE is non-nil, then it is
+passed to git after \"--\", the effect being to focus on changes
+to that particular file.  If REFS-ONLY is non-nil, then only
+those commits associated to a branch or tag are shown.
+`egg-log-max-len' controls the maximum number of entries."
   (let ((extra-args (if file (list "--" file) nil)))
     (when refs-only
       (setq extra-args (cons "--simplify-by-decoration" extra-args)))
+    ;; Search for "--salvage" and translate it into a call to git fsck
+    ;; --unreachable.
+    (when (member "--salvage" scope)
+      (setq scope
+            (loop for s in scope
+                  if (equal s "--salvage")
+                     nconc (egg-list-unreachable-commits) into result
+                  else
+                     collect s into result
+                  finally return result)))
     (apply 'egg-git-ok
            t "log" (format "--max-count=%d" egg-log-max-len)
            "--graph" "--topo-order" "--pretty=oneline" "--decorate"
            "--no-color"
-           (if (stringp scope)
-               (cons scope extra-args)
-             (append scope extra-args)))))
+           (nconc scope extra-args))))
 
 (defun egg-run-git-log-pickaxe (string)
   (egg-git-ok t "log" "--pretty=oneline" "--decorate" "--no-color"
@@ -5322,7 +5351,9 @@ will try to fill it with what git rebase -i would have given.
                                  :diff-map egg-log-diff-map
                                  :hunk-map egg-log-hunk-map)
       (goto-char beg)
-      (setq end (next-single-property-change beg :diff))
+      ;; Search for the end of the header (time stamp + author).  In --salvage
+      ;; history scope the diff may be empty, so we need to limit the search.
+      (setq end (next-single-property-change beg :diff nil end))
       (put-text-property beg (+ indent-column beg) 'face 'egg-diff-none)
       (put-text-property (+  indent-column beg) (line-end-position)
                          'face 'egg-text-2)
@@ -5439,13 +5470,13 @@ These strings have special meanings (don't enter the quotes):
     garbage collected, i.e. this lets you access lost commits and
     stashes.  You can combine this with other scopes; e.g. try
     \"--salvage --all\" and \"--salvage HEAD\".  The underlying
-    git command is git log \\`git fsck --unreachable\\`.
+    git command is git log \`git fsck --unreachable --no-reflogs\`.
     Warning: this feature is experimental.  It doesn't work on
              Windows and it might not scale to a repo that has
              a lot of uncollected garbage.
 
-The default scope is \"all\", which can be changed by customizing
-`egg-log-default-history-scope'.
+The default scope is \"--all\", which can be changed by
+customizing `egg-log-default-history-scope'.
 
 Keys common to the whole buffer are:\\<egg-log-buffer-mode-map>
 
@@ -5821,10 +5852,8 @@ Each remote ref on the commit line has extra extra extra keybindings:\\<egg-log-
   "Update the history scope.  Do not redisplay, but simply update
 internal state variables.  Signals 'egg-log-invalid-scope with
 git's error message if NEW-SCOPE is invalid."
-  (setq new-scope
-        (if (member new-scope '("--all" "all refs" "all"))
-            "--all"
-          new-scope))
+  (when (stringp new-scope)
+    (setq new-scope (list new-scope)))
   (with-temp-buffer
     (unless (let ((egg-log-max-len 0)) (egg-run-git-log new-scope))
       (put 'egg-log-invalid-scope 'error-conditions '(egg-log-invalid-scope))
@@ -5840,10 +5869,7 @@ git's error message if NEW-SCOPE is invalid."
       (concat
        (egg-text "history scope: " 'egg-text-2)
        (if (stringp egg-log-buffer-scope)
-           (egg-text (if (equal egg-log-buffer-scope "--all")
-                         "all refs"
-                       egg-log-buffer-scope)
-                     'egg-term)
+           (egg-text egg-log-buffer-scope 'egg-term)
          (mapconcat (lambda (s) (egg-text s 'egg-term))
                     egg-log-buffer-scope
                     (egg-text " " 'egg-text-2)))
@@ -5862,10 +5888,8 @@ also be the special string \"all\" (without quotes).  See
             (let ((crm-separator "[ \f\t\n\r\v]+"))
               (completing-read-multiple
                "commit/ref(s) you want to see: "
-               (cons "--all" (cons "all refs" (egg-all-refs)))
+               (cons "--all" (cons "--salvage" (egg-all-refs)))
                nil nil (mapconcat 'identity def " "))))
-      (when (member def '(("all") ("all" "refs") ("--all")))
-        (setq def "--all"))
       (condition-case err
           (progn
             (egg-log-buffer-set-history-scope def)
@@ -5883,10 +5907,10 @@ also be the special string \"all\" (without quotes).  See
     (define-key map (kbd "RET") 'egg-log-buffer-edit-history-scope)
     map))
 
-(defcustom egg-log-default-history-scope "all refs"
+(defcustom egg-log-default-history-scope "--all"
   "The default history scope to be brought up when the log buffer
 is started for the first time with `egg-log'.  It should be a
-string, usually \"all refs\" or \"HEAD\".  You can also set it to
+string, usually \"--all\" or \"HEAD\".  You can also set it to
 a string indicating an SHA1 hash or a ref name (i.e. branch or
 tag) or a list of such strings, but make sure you know what
 you're doing in that case."
