@@ -5,6 +5,7 @@
 ;; Copyright (C) 2009  Tim Moore
 ;; Copyright (C) 2010  Alexander Prusov
 ;; Copyright (C) 2011-12 byplayer
+;; Copyright (C) 2013  Jun Inoue
 ;;
 ;; Author: Bogolisk <bogolisk@gmail.com>
 ;; Created: 19 Aug 2008
