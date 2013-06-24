@@ -6216,7 +6216,7 @@ same commit in the log buffer, and jump there."
       (set-buffer-modified-p nil))))
 
 (defun egg-stash-buffer-drop (pos &optional no-confirm)
-  (interactive "dP")
+  (interactive "d\nP")
   (let ((stash (get-text-property pos :stash)))
     (when (and stash (stringp stash)
                (or no-confirm
@@ -6244,10 +6244,10 @@ same commit in the log buffer, and jump there."
       (egg-status))))
 
 (defun egg-stash-buffer-apply (pos &optional no-confirm)
-  (interactive "dP")
+  (interactive "d\nP")
   (unless (egg-wdir-clean)
     (egg-status)
-    (error "Cannot aplly stash on dirty work-dir"))
+    (error "Cannot apply stash on dirty work-dir"))
   (let ((stash (get-text-property pos :stash)))
     (when (and stash (stringp stash)
                (or no-confirm
