@@ -4318,6 +4318,8 @@ those commits associated to a branch or tag are shown.
     (define-key map (kbd "*") 'egg-log-buffer-mark)
     (define-key map (kbd "=") 'egg-log-buffer-diff-revs)
 
+    (define-key map (kbd "w") 'egg-log-buffer-commit-to-stash)
+
     (define-key map [C-down-mouse-2] 'egg-log-popup-commit-line-menu)
     (define-key map [C-mouse-2] 'egg-log-popup-commit-line-menu)
 
@@ -5368,6 +5370,95 @@ will try to fill it with what git rebase -i would have given.
          (sha1 (and next (get-text-property next :commit))))
     (unless (equal (get-text-property pos :commit) sha1)
       (egg-log-buffer-do-insert-commit pos))))
+
+(defcustom egg-new-stash-msg-new-commit t
+  "If non-nil, `egg-log-buffer-commit-to-stash' will change the
+description of a stash by performing git commit --amend.  See the
+warning in the documentation of that function for more
+information.")
+
+(defun egg-log-buffer-commit-to-stash (pos &optional edit-description)
+  "Convert the current commit into a stash, and put it on the top
+of the list of stashes.  With a prefix argument, you can edit the
+stash's description.
+
+This command is used to recover a stash you lost by pop or drop.
+You can't use it on any other kind of commit.
+
+WARNING: this command will change the description of a stash by
+creating a new commit object, which might trigger a garbage
+collection (gc).  This gc can wipe out other stashes you may have
+wanted to revive.  If you set `egg-new-stash-msg-new-commit' to
+nil, then this command instead registers the commit as a stash
+without modification, but under the new description.  The stash
+buffer will show the new description whereas the log buffer will
+keep showing the old description.  I (Jun Inoue
+<jun.lambda@gmail.com>) don't know enough git internals to be
+sure if this is enough to prevent gc.  A more surefire way may be
+to put lightweight tags on all commits you want to revive, before
+reviving any of them; but maybe this can also trigger gc.  I
+don't know.  If you know which actions can/can't trigger gc,
+please tell me via email or github's issue tracker.
+
+Corresponding git/shell commands are:
+
+# Using --amend
+git checkout <commit>
+git commit --amend -m <new description>
+touch .git/logs/refs/stash  # create stash reflog if non-existent
+git update-ref refs/stash -m <new-commit>
+git checkout <where-HEAD-was-before>
+
+# Not using --amend
+touch .git/logs/refs/stash  # create stash reflog if non-existent
+git update-ref refs/stash -m <description> <commit>"
+  (interactive "d\nP")
+  (let ((state (egg-repo-state :staged :unstaged))
+        (sha1 (egg-log-buffer-get-rev-at pos :no-HEAD))
+        orig-head orig-commit-msg commit-msg success)
+    (unless (egg-repo-clean state)
+      (error "repo %s is not clean" (plist-get state :gitdir)))
+    (if (not (and (member "--salvage" egg-log-buffer-scope)
+                   (string-match "[0-9a-f]\\{20\\}" sha1)
+                   ;; This is how git-stash checks if a commit is a stash.
+                   (egg-git-to-string "rev-parse" "--quiet" "--verify"
+                                      (concat sha1 "^2"))))
+        (message "This doesn't look like a lost stash.")
+      (setq orig-commit-msg
+            ;; Chomp out trailing newlines.
+            (replace-regexp-in-string "\n$" "" (egg-commit-message sha1)))
+      (setq commit-msg (if edit-description
+                           (read-string
+                            "new description of this work-in-progress: "
+                            orig-commit-msg)
+                         orig-commit-msg))
+      (flet ((register-as-stash (sha1)
+              ;; Make sure the stash reflog file exists, for otherwise the log
+              ;; may not be kept and the revived stash not recognized by git.
+              (write-region (point) (point)
+                            (concat (file-name-as-directory
+                                     (plist-get state :gitdir))
+                                    "logs/refs/stash")
+                            'append)
+              (egg-sync-0 "update-ref" "refs/stash" "-m" commit-msg sha1)))
+        (cond
+         ((and egg-new-stash-msg-new-commit
+               (not (equal commit-msg orig-commit-msg)))
+          ;; Make a new commit object.  We can't reuse git stash save here,
+          ;; because that command adds another "On branch: " prefix.
+          (setq orig-head (or (egg-current-branch state)
+                              (egg-current-sha1 state)))
+          (if (and (egg-sync-0 "checkout" sha1)
+                   (egg-sync-0 "commit" "--amend" "-m" commit-msg)
+                   (register-as-stash (egg-current-sha1)))
+              (setq success t)
+            (message "failed to convert to stash"))
+          (egg-sync-0 "checkout" orig-head))
+         (t
+          ;; Reuse existing commit object, possibly with a new description.
+          (setq success (register-as-stash sha1)))))
+      (when success (egg-stash))
+      )))
 
 (defun egg-generic-display-logs (data &optional init)
   (buffer-disable-undo)
