@@ -396,60 +396,80 @@ Many Egg faces inherit from this one by default."
                          (const :tag "Untracked/Uignored Files" untracked))))
 
 (defcustom egg-unstaged-section-highlight-property nil
-  "Text properties used to highlight the Unstaged Changes Section
+  "Text properties used to highlight the Unstaged Changes section
 of the status buffer, or nil for no highlighting.  When the list
-of changes is long, it's easy to lose track of whether you're in
-a staged or unstaged hunk.  Highlighting them by different colors
-can help you identify the section you're in without searching for
-the section heading.
+of changes is long, it's easy to get confused if you're in a
+staged or unstaged hunk.  This variable and its companion
+`egg-staged-section-highlight-property' lets you highlight those
+sections with different colors, so that you can identify the
+section you're in without searching for the section heading.
 
 This variable's value should have the same format as the `face'
 property of text properties, i.e. either a symbol indicating a
 face name (NB: not recommended) or (KEYWORD VALUE) where each
-KEYWORD is a face atribute name and VALUE is a meaningful value
+KEYWORD is a face attribute name and VALUE is a meaningful value
 for that attribute.
 
-For example, (:background \"yellow\") makes the whole section's
-background yellow.  Unfortunately, right now this highlighting
-overrides any existing highlighting from `diff-mode', so lines
-that look like
-@@ -399,15 +399,26 @@
-which normally have gray backgrounds will have yellow
-backgrounds too.  Properties you didn't specify will not be
-overridden, so (e.g.) the font color will continue to be
-highlighted as normal.  Patches to fix this problem would be
-very welcome.
+For example, the following setting color-codes the unstaged
+section with a reddish background and the staged section with a
+blueish background, which works nicely if you use emacs with a
+white background.
 
-Related: `egg-staged-section-highlight-property'"
+ ;; You should do this through `customize' or `customize-group'.
+ ;; setq is used here for illustration purposes only.
+ (setq egg-unstaged-section-highlight-property
+       '(:background \"peach puff\"))
+ (setq egg-staged-section-highlight-property
+       '(:background \"pale turquoise\"))
+
+Known issue: unfortunately, this highlighting overrides any
+existing highlighting of diff lines, so for example if you set
+egg-unstaged-sectin-highlight-property to (:background
+\"yellow\"), then lines that look like
+@@ -399,15 +399,26 @@
+which normally have gray backgrounds will have yellow backgrounds
+too.  Properties you didn't specify will not be overridden,
+so (e.g.) the font color will continue to be as normal.
+Suggestions on how to fix this problem would be very welcome."
   :group 'egg
   :tag "Egg Unstaged Section Highlighting")
 
 (defcustom egg-staged-section-highlight-property nil
-  "Text properties used to highlight the Staged Changes Section
+  "Text properties used to highlight the Staged Changes section
 of the status buffer, or nil for no highlighting.  When the list
-of changes is long, it's easy to lose track of whether you're in
-a staged or unstaged hunk.  Highlighting them by different colors
-can help you identify the section you're in without searching for
-the section heading.
+of changes is long, it's easy to get confused if you're in a
+staged or unstaged hunk.  This variable and its companion
+`egg-unstaged-section-highlight-property' lets you highlight
+those sections with different colors, so that you can identify
+the section you're in without searching for the section heading.
 
 This variable's value should have the same format as the `face'
 property of text properties, i.e. either a symbol indicating a
 face name (NB: not recommended) or (KEYWORD VALUE) where each
-KEYWORD is a face atribute name and VALUE is a meaningful value
+KEYWORD is a face attribute name and VALUE is a meaningful value
 for that attribute.
 
-For example, (:background \"yellow\") makes the whole section's
-background yellow.  Unfortunately, right now this highlighting
-overrides any existing highlighting from `diff-mode', so lines
-that look like
-@@ -399,15 +399,26 @@
-which normally have gray backgrounds will have yellow
-backgrounds too.  Properties you didn't specify will not be
-overridden, so (e.g.) the font color will continue to be
-highlighted as normal.  Patches to fix this problem would be
-very welcome.
+For example, the following setting color-codes the unstaged
+section with a reddish background and the staged section with a
+blueish background, which works nicely if you use emacs with a
+white background.
 
-Related: `egg-unstaged-section-highlight-property'"
+ ;; You should do this through `customize' or `customize-group'.
+ ;; setq is used here for illustration purposes only.
+ (setq egg-unstaged-section-highlight-property
+       '(:background \"peach puff\"))
+ (setq egg-staged-section-highlight-property
+       '(:background \"pale turquoise\"))
+
+Known issue: unfortunately, this highlighting overrides any
+existing highlighting of diff lines, so for example if you set
+egg-unstaged-sectin-highlight-property to (:background
+\"yellow\"), then lines that look like
+@@ -399,15 +399,26 @@
+which normally have gray backgrounds will have yellow backgrounds
+too.  Properties you didn't specify will not be overridden,
+so (e.g.) the font color will continue to be as normal.
+Suggestions on how to fix this problem would be very welcome."
   :group 'egg
   :tag "Egg Staged Section Highlighting")
 
@@ -3280,7 +3300,16 @@ If INIT was not nil, then perform 1st-time initializations as well."
 (egg-internal-background-jobs-restart)
 
 (define-egg-buffer status "*%s-status@%s*"
-  "Major mode to display the egg status buffer."
+  "Major mode to display the repo's status, namely which branch
+it is in, the location of git's metadata files, and the state of
+the index.  You can stage/unstage hunks, track untracked files,
+commit, or abort an ongoing rebase session.
+
+If you find yourself losing track of whether you are in the
+Unstaged Changes section or the Staged Changes section, you might
+find it helpful to highlight those sections differently using
+`egg-staged-section-highlight-property' and
+`egg-unstaged-section-highlight-property'."
   (kill-all-local-variables)
   (setq buffer-read-only t)
   (setq major-mode 'egg-status-buffer-mode
@@ -5545,10 +5574,9 @@ shortened SHA1 represents a commit in the repo's history.
 `egg-log-max-len' controls how many commits are shown.
 
 The \"history scope:\" line shows arguments passed to git, and
-controls which commits are displayed.  For example, when it says
-\"history scope: HEAD\" then only those commits leading up to
-HEAD are displayed and unmerged branches are omitted, just like
-git log HEAD.
+controls which commits are shown; e.g.  \"history scope: HEAD\"
+means only those commits leading up to HEAD are displayed and
+unmerged branches are omitted, just like git log HEAD.
 
 \\<egg-log-buffer-history-scope-map>\
 To change the history scope temporarily, type \\[egg-log-buffer-edit-history-scope]
@@ -6463,8 +6491,8 @@ function."
     "\\[egg-section-cmd-toggle-hide-show]:hide/show details  "
     "\\[egg-stash-buffer-apply]:apply  "
     "\\[egg-stash-buffer-pop]:pop and apply stash\n"
-    "\\[egg-stash-buffer-drop]:delete stash  "
-    "\\[egg-stash-buffer-clear]:delete all  "
+    "\\[egg-stash-buffer-drop]:drop stash  "
+    "\\[egg-stash-buffer-clear]:drop all  "
     )
    "\n"
    ))
