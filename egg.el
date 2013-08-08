@@ -3616,16 +3616,34 @@ find it helpful to highlight those sections differently using
 
 (defun egg-hunk-section-cmd-stage (pos)
   (interactive (list (point)))
-  (egg-show-git-output
-   (egg-hunk-section-patch-cmd pos egg-git-command "apply" "--cached")
-   -1 "GIT-APPLY"))
+  (let* ((hunk-info (egg-hunk-info-at (or pos (point))))
+         (hunk-beg (nth 2 hunk-info))
+         (display-beg (window-start)))
+    (egg-show-git-output
+     (egg-hunk-section-patch-cmd pos egg-git-command "apply" "--cached")
+     -1 "GIT-APPLY")
+    (goto-char hunk-beg)
+    (when (equal (window-buffer (selected-window))
+                 (current-buffer))
+      (set-window-start
+       (selected-window)
+       display-beg))))
 
 (defun egg-hunk-section-cmd-unstage (pos)
   (interactive (list (point)))
-  (egg-show-git-output
-   (egg-hunk-section-patch-cmd pos egg-git-command "apply"
-                               "--cached" "--reverse")
-   -1 "GIT-APPLY"))
+  (let* ((hunk-info (egg-hunk-info-at (or pos (point))))
+         (hunk-beg (nth 2 hunk-info))
+         (display-beg (window-start)))
+    (egg-show-git-output
+     (egg-hunk-section-patch-cmd pos egg-git-command "apply"
+                                 "--cached" "--reverse")
+     -1 "GIT-APPLY")
+    (goto-char hunk-beg)
+    (when (equal (window-buffer (selected-window))
+                 (current-buffer))
+      (set-window-start
+       (selected-window)
+       display-beg))))
 
 (defun egg-hunk-section-cmd-undo (pos)
   (interactive (list (point)))
